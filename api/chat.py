@@ -3,24 +3,58 @@
 Streams the answer as Server-Sent Events, keeping the API key server-side.
 Set ANTHROPIC_API_KEY in the Vercel project's environment variables.
 
+Self-contained (no cross-file imports) so it bundles cleanly on Vercel. The
+config here mirrors worldcup.py, which is the source of truth for local use.
+
 Note: on Vercel's Python runtime the SSE frames are buffered and delivered when
 the function returns, so the browser renders the full answer at once rather than
 token-by-token. The local server (server.py) streams live.
 """
 
 import json
-import os
-import sys
 from http.server import BaseHTTPRequestHandler
-
-# Make the shared config/helpers at the repo root importable.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import anthropic
 
-from worldcup import MODEL, SYSTEM_PROMPT, TOOLS, extract_citations
+MODEL = "claude-opus-4-8"
+
+SYSTEM_PROMPT = (
+    "You are a friendly, knowledgeable guide to the 2026 FIFA World Cup, "
+    "co-hosted by the United States, Canada, and Mexico (June 11 - July 19, 2026). "
+    "It is the first 48-team World Cup. Answer questions about matches, scores, "
+    "the schedule, groups, venues, teams, players, and records.\n\n"
+    "Use the web_search tool whenever a question depends on live or recent "
+    "information (results, standings, upcoming fixtures, injuries). Cite the key "
+    "facts you find. If something has not happened yet, say so plainly rather "
+    "than guessing. If a question is not about the 2026 World Cup, briefly say "
+    "that's outside your focus and offer to help with the tournament instead. "
+    "Keep answers concise and lead with the direct answer."
+)
+
+TOOLS = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
 
 client = anthropic.Anthropic()
+
+
+def extract_citations(content):
+    seen, out = set(), []
+
+    def add(url, title):
+        if url and url not in seen:
+            seen.add(url)
+            out.append({"title": title or url, "url": url})
+
+    for block in content:
+        btype = getattr(block, "type", None)
+        if btype == "text":
+            for cite in getattr(block, "citations", None) or []:
+                add(getattr(cite, "url", None), getattr(cite, "title", None))
+        elif btype == "web_search_tool_result":
+            results = getattr(block, "content", None)
+            if isinstance(results, list):
+                for r in results:
+                    add(getattr(r, "url", None), getattr(r, "title", None))
+    return out
 
 
 def stream_answer(history):
