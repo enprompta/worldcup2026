@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026 World Cup Assistant</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c232c;
+    --line: #29313c;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #2f9e6b;
+    --accent-2: #35b37a;
+    --user: #1f6feb;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 760px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .msg { max-width: 85%; padding: 11px 14px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg.error { align-self: flex-start; background: #3a1d1d; border: 1px solid #6b2b2b; color: #ffd7d7; }
+  .msg a { color: var(--accent-2); }
+  .sources { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .sources ol { margin: 4px 0 0; padding-left: 18px; }
+  .sources a { color: var(--accent-2); }
+  .cursor::after { content: "\258c"; color: var(--muted); animation: blink 1s step-end infinite; }
+  .hint { color: var(--muted); font-size: 14px; text-align: center; margin: auto 0; padding: 0 20px; }
+  .hint .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .chip { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 8px 12px;
+          border-radius: 999px; font-size: 13px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); }
+  .typing { display: inline-flex; gap: 4px; align-items: center; }
+  .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+  form {
+    display: flex;
+    gap: 10px;
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 11px 12px;
+    font: inherit;
+    max-height: 140px;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0 18px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--accent-2); }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>2026 World Cup Assistant</h1>
+    <p>Ask about matches, scores, groups, venues, and records. USA / Canada / Mexico.</p>
+  </header>
+
+  <div id="log">
+    <div class="hint" id="hint">
+      Ask anything about the 2026 FIFA World Cup.
+      <div class="chips">
+        <span class="chip">When and where is the final?</span>
+        <span class="chip">Which teams reached the semi-finals?</span>
+        <span class="chip">List the host cities.</span>
+        <span class="chip">Who are the top scorers so far?</span>
+      </div>
+    </div>
+  </div>
+
+  <form id="form">
+    <textarea id="input" rows="1" placeholder="Ask about the 2026 World Cup..." autocomplete="off"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+</div>
+
+<script>
+  const log = document.getElementById("log");
+  const hint = document.getElementById("hint");
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+  const history = [];
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // Minimal formatting: **bold** and links, on escaped text.
+  function render(text) {
+    return escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(https?:\/\/[^\s)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  }
+
+  function addMsg(role, text) {
+    if (hint) hint.remove();
+    const el = document.createElement("div");
+    el.className = "msg " + role;
+    el.innerHTML = role === "bot" ? render(text) : escapeHtml(text);
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  function addTyping() {
+    if (hint) hint.remove();
+    const el = document.createElement("div");
+    el.className = "msg bot";
+    el.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  function renderSources(el, sources) {
+    if (!sources || !sources.length) return;
+    const box = document.createElement("div");
+    box.className = "sources";
+    const items = sources.map(s =>
+      `<li><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a></li>`
+    ).join("");
+    box.innerHTML = "Sources<ol>" + items + "</ol>";
+    el.appendChild(box);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function ask(question) {
+    addMsg("user", question);
+    history.push({ role: "user", content: question });
+    const typing = addTyping();
+    send.disabled = true;
+
+    let botEl = null;
+    let text = "";
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+
+      if (!res.ok) {
+        typing.remove();
+        let msg = "HTTP " + res.status;
+        try { msg = (await res.json()).error || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      // Parse the SSE stream: events are separated by a blank line.
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sep;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+
+          let event = "message", data = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            else if (line.startsWith("data:")) data += line.slice(5).trim();
+          }
+          if (!data) continue;
+          const payload = JSON.parse(data);
+
+          if (event === "token") {
+            if (!botEl) { typing.remove(); botEl = addMsg("bot", ""); }
+            text += payload;
+            botEl.innerHTML = render(text);
+            botEl.classList.add("cursor");
+            log.scrollTop = log.scrollHeight;
+          } else if (event === "citations") {
+            if (!botEl) { typing.remove(); botEl = addMsg("bot", text); }
+            botEl.classList.remove("cursor");
+            renderSources(botEl, payload);
+          } else if (event === "error") {
+            typing.remove();
+            throw new Error(payload);
+          }
+        }
+      }
+
+      if (botEl) botEl.classList.remove("cursor");
+      history.push({ role: "assistant", content: text });
+    } catch (err) {
+      typing.remove();
+      if (botEl) botEl.classList.remove("cursor");
+      addMsg("error", "Something went wrong: " + err.message);
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q || send.disabled) return;
+    input.value = "";
+    input.style.height = "auto";
+    ask(q);
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 140) + "px";
+  });
+
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  log.addEventListener("click", e => {
+    if (e.target.classList.contains("chip")) ask(e.target.textContent.trim());
+  });
+
+  input.focus();
+</script>
+</body>
+</html>
