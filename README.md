@@ -66,4 +66,4 @@ Type `quit` or `exit` (or press Ctrl-C) to leave interactive mode.
   citations under each answer.
 - Conversation history gives follow-up questions context (kept in memory in the
   CLI; held by the browser and resent per request in the web app).
-"# worldcup2026" 
+
