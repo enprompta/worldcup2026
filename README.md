@@ -18,6 +18,17 @@ project.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Enprompta/worldcup2026/blob/main/notebooks/enprompta_quickstart.ipynb)
 
+## Take the course: Evaluating AI Agents
+
+Once you've traced it, learn to **evaluate** it. This app is the running example in
+Enprompta's free course on agent evaluation — you'll score it across the three
+surfaces every agent has (**router · skill · path**), catch real failures
+(answering live questions with no citation, over-searching, off-topic leakage),
+and prove a fix with an experiment. Every lab runs in one notebook — no local
+setup.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Enprompta/worldcup2026/blob/main/notebooks/evaluating-ai-agents.ipynb)
+
 ## Setup
 
 ```bash
