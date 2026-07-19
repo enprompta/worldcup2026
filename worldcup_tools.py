@@ -270,7 +270,7 @@ def get_player_stats(player: str) -> dict:
 def get_venue_info(venue: str) -> dict:
     v = _norm(venue)
     for name, info in VENUES.items():
-        if v in _norm(name) or v == _norm(info["city"]):
+        if v in _norm(name) or v in _norm(info["city"]):
             return dict(info)
     return {"error": f"No venue matching '{venue}'.",
             "available": sorted(VENUES.keys())}
