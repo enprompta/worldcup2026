@@ -6,6 +6,12 @@ Set ANTHROPIC_API_KEY in the Vercel project's environment variables.
 Self-contained (no cross-file imports) so it bundles cleanly on Vercel. The
 config here mirrors worldcup.py, which is the source of truth for local use.
 
+Scope note: to stay self-contained on Vercel this endpoint intentionally uses
+only the built-in web_search tool. The client-side tools in worldcup_tools.py
+(standings, fixtures, qualification, knowledge base, ...) power the CLI, the
+local server, and the course notebook. If we later want them here too, vendor
+worldcup_tools into the bundle rather than adding a cross-file import.
+
 Note: on Vercel's Python runtime the SSE frames are buffered and delivered when
 the function returns, so the browser renders the full answer at once rather than
 token-by-token. The local server (server.py) streams live.

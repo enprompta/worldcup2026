@@ -15,6 +15,8 @@ import sys
 
 import anthropic
 
+from worldcup_tools import CLIENT_TOOLS, run_tool_uses
+
 MODEL = "claude-opus-4-8"
 
 SYSTEM_PROMPT = (
@@ -22,15 +24,29 @@ SYSTEM_PROMPT = (
     "co-hosted by the United States, Canada, and Mexico (June 11 - July 19, 2026). "
     "It is the first 48-team World Cup. Answer questions about matches, scores, "
     "the schedule, groups, venues, teams, players, and records.\n\n"
-    "Use the web_search tool whenever a question depends on live or recent "
-    "information (results, standings, upcoming fixtures, injuries). Cite the key "
-    "facts you find. If something has not happened yet, say so plainly rather "
-    "than guessing. If a question is not about the 2026 World Cup, briefly say "
-    "that's outside your focus and offer to help with the tournament instead. "
+    "You have tools. Prefer the structured tools for anything they cover, and "
+    "compose several when a question needs it:\n"
+    "- get_group_standings, get_fixtures, get_match_result, get_team_squad, "
+    "get_player_stats, get_venue_info for tournament data;\n"
+    "- convert_kickoff_to_timezone to give a fixture's local kickoff time;\n"
+    "- calculate_qualification_scenario for 'can team X still advance?';\n"
+    "- search_knowledge_base for static facts (format, tie-breakers, hosts, "
+    "history) that do not change.\n"
+    "Use the web_search tool only when a question needs live or breaking "
+    "information the tools do not have (e.g. a result that just happened). Cite "
+    "the key facts you find. If something has not happened yet, say so plainly "
+    "rather than guessing. If a question is not about the 2026 World Cup, briefly "
+    "say that's outside your focus and offer to help with the tournament instead. "
     "Keep answers concise and lead with the direct answer. Do not use emojis."
 )
 
+# Built-in server tool (runs inside Anthropic). Kept as TOOLS for backward
+# compatibility with anything that imported it.
 TOOLS = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
+
+# The full toolset the agent is actually called with: the server web_search plus
+# the client-side tools defined in worldcup_tools.
+ALL_TOOLS = TOOLS + CLIENT_TOOLS
 
 
 # --------------------------------------------------------------------------- #
@@ -62,16 +78,16 @@ def extract_citations(content) -> list:
 # The single LLM call site. This is the function students instrument.
 # --------------------------------------------------------------------------- #
 def ask(client: anthropic.Anthropic, messages: list) -> str:
-    """Run one turn (resolving web-search pauses); stream text and return it."""
+    """Run one turn (resolving web-search pauses and tool calls); stream and return text."""
     answer_parts: list[str] = []
     citations: list = []
 
-    while True:
+    for _ in range(8):  # cap web_search pauses + client tool rounds
         with client.messages.stream(
             model=MODEL,
             max_tokens=4096,
             system=SYSTEM_PROMPT,
-            tools=TOOLS,
+            tools=ALL_TOOLS,
             messages=messages,
         ) as stream:
             for text in stream.text_stream:
@@ -82,9 +98,14 @@ def ask(client: anthropic.Anthropic, messages: list) -> str:
         messages.append({"role": "assistant", "content": final.content})
         citations += extract_citations(final.content)
 
-        if final.stop_reason == "pause_turn":
+        if final.stop_reason == "pause_turn":  # web_search running server-side
             messages.append({"role": "user", "content": "Please continue."})
             continue
+        if final.stop_reason == "tool_use":  # one or more client tools requested
+            tool_results = run_tool_uses(final.content)
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+                continue
         break
 
     print()

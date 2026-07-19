@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import anthropic
 
-from worldcup import MODEL, SYSTEM_PROMPT, TOOLS, extract_citations
+from worldcup import ALL_TOOLS, MODEL, SYSTEM_PROMPT, extract_citations
+from worldcup_tools import run_tool_uses
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8000"))
@@ -40,12 +41,12 @@ def stream_answer(history: list):
     citations: list = []
 
     try:
-        for _ in range(4):  # cap pause_turn continuations
+        for _ in range(8):  # cap web_search pauses + client tool rounds
             with client.messages.stream(
                 model=MODEL,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                tools=TOOLS,
+                tools=ALL_TOOLS,
                 messages=messages,
             ) as stream:
                 for text in stream.text_stream:
@@ -55,9 +56,14 @@ def stream_answer(history: list):
             messages.append({"role": "assistant", "content": final.content})
             citations += extract_citations(final.content)
 
-            if final.stop_reason == "pause_turn":
+            if final.stop_reason == "pause_turn":  # web_search running server-side
                 messages.append({"role": "user", "content": "Please continue."})
                 continue
+            if final.stop_reason == "tool_use":  # client tools requested
+                tool_results = run_tool_uses(final.content)
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
+                    continue
             break
 
         seen, unique = set(), []
