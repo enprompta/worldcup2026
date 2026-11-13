@@ -1,1 +1,9 @@
-anthropic>=0.116.0
+# Upper bound is deliberate: 0.116 is what this app was written against and
+# anthropic has shipped two majors since. Without a bound every fresh install
+# and every redeploy silently jumps major versions.
+anthropic>=0.116.0,<3.0.0
+
+# Python's zoneinfo reads the operating system's tz database, which Windows
+# does not have and slim Linux images often omit. Without this,
+# convert_kickoff_to_timezone fails for every valid IANA name.
+tzdata

@@ -285,10 +285,23 @@ def convert_kickoff_to_timezone(kickoff_utc: str, timezone_name: str) -> dict:
     except ValueError:
         return {"error": f"Could not parse '{kickoff_utc}'. Use ISO-8601, e.g. 2026-06-24T19:00:00Z."}
     try:
-        from zoneinfo import ZoneInfo
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    except ImportError:  # pragma: no cover - zoneinfo is stdlib from 3.9
+        return {"error": "This Python build has no zoneinfo module."}
+
+    try:
         local = dt.astimezone(ZoneInfo(timezone_name))
-    except Exception:  # noqa: BLE001 — unknown tz or zoneinfo unavailable
+    except ZoneInfoNotFoundError:
+        # Two very different causes raise this. Telling the caller the zone
+        # name is wrong when the real problem is a missing tz database sends
+        # them after the wrong fix, and on Windows that is the common case.
+        try:
+            ZoneInfo("UTC")
+        except ZoneInfoNotFoundError:
+            return {"error": "No tz database on this system. Install it with: pip install tzdata"}
         return {"error": f"Unknown timezone '{timezone_name}'. Use an IANA name like 'Europe/London'."}
+    except (ValueError, OSError) as exc:
+        return {"error": f"Could not resolve timezone '{timezone_name}': {exc}"}
     return {"kickoff_utc": kickoff_utc, "timezone": timezone_name,
             "local_time": local.strftime("%Y-%m-%d %H:%M"),
             "local_time_iso": local.isoformat()}
@@ -477,15 +490,27 @@ if __name__ == "__main__":
         ("calculate_qualification_scenario", {"group": "A", "team": "Poland"}),
         ("search_knowledge_base", {"query": "group tie-breakers if level on points"}),
     ]
-    _ok = 0
+    _failed = []
     for _name, _args in _checks:
         try:
             _out = run_tool(_name, _args)
             _bad = isinstance(_out, dict) and _out.get("error")
             print("FAIL" if _bad else "ok  ", _name, "->", json.dumps(_out, default=str)[:110])
-            _ok += 0 if _bad else 1
+            if _bad:
+                _failed.append(_name)
         except Exception as _exc:  # noqa: BLE001
             print("ERR ", _name, "->", _exc)
+            _failed.append(_name)
+
     _teams = [t for teams in GROUPS.values() for t in teams]
     assert len(_teams) == len(set(_teams)) == 48, "expected 48 unique teams across the groups"
-    print(f"\n{_ok}/{len(_checks)} tools returned data; {len(_teams)} unique teams across {len(GROUPS)} groups.")
+
+    _passed = len(_checks) - len(_failed)
+    print()
+    print(f"{_passed}/{len(_checks)} tools returned data; "
+          f"{len(_teams)} unique teams across {len(GROUPS)} groups.")
+    if _failed:
+        # Exit non-zero so this is usable as a gate. It previously printed
+        # FAIL and still exited 0, which made the failure invisible to CI.
+        print("failed: " + ", ".join(_failed))
+        raise SystemExit(1)
