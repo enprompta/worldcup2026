@@ -1,0 +1,50 @@
+name: smoke
+
+# The repo had no CI, so nothing checked that the tools actually run. The
+# Windows job is not incidental: `zoneinfo` reads the OS tz database, which
+# Windows does not ship, and that is precisely how the timezone tool came to
+# be broken for every valid IANA name without anyone noticing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Tool smoke test
+        run: python worldcup_tools.py
+
+      # Offline suites. Picked up by glob so a new test_*.py is covered
+      # without editing this workflow. None of them need an API key.
+      - name: Offline test suites
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(test_*.py)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no test_*.py present yet"
+            exit 0
+          fi
+          status=0
+          for f in "${files[@]}"; do
+            echo "== $f"
+            python "$f" || status=1
+          done
+          exit $status
