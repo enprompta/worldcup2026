@@ -14,9 +14,18 @@ run, an agent that composes these tools produces a deep, typed span tree
 (agent -> tool -> tool -> retrieval -> llm). The tools themselves stay
 deliberately *uninstrumented* — adding the tracing is the course.
 
-The data here is illustrative sample data for a tournament that is still being
-played; it is meant to be realistic and reproducible, not authoritative. For
-anything live (actual results, standings, injuries) the agent should still use
+The data here is illustrative sample data: realistic and reproducible, not
+authoritative. It was written as a *pre-tournament snapshot* and is deliberately
+frozen, so its scorelines, tables and "scheduled" fixtures do not track the real
+tournament and drift further from it over time. Treating it as fact gives you
+confidently wrong answers.
+
+Every tool that returns a fabricated tournament outcome therefore stamps
+``SAMPLE_NOTE`` on its result, so the model is told what it is holding rather
+than left to infer it. ``get_venue_info`` and ``search_knowledge_base`` are not
+stamped: stadiums and competition rules are real facts that do not go stale.
+
+For anything factual (actual results, standings, injuries) the agent should use
 ``web_search``.
 """
 
@@ -28,6 +37,14 @@ from datetime import datetime, timezone
 # --------------------------------------------------------------------------- #
 # Sample dataset (illustrative — see module docstring)
 # --------------------------------------------------------------------------- #
+# Stamped on every tool result that carries a fabricated outcome. It has to
+# travel with the data into the model's context, because that is the last point
+# where the distinction still exists — by the time a "2-1" reaches an answer it
+# is indistinguishable from a real one.
+SAMPLE_NOTE = (
+    "Illustrative sample data from a frozen pre-tournament snapshot, not a real "
+    "result. Do not present it as fact; use web_search for anything factual."
+)
 # 48 teams, 12 groups of 4. Top two of each group plus the eight best
 # third-placed teams advance to a 32-team knockout round.
 GROUPS: dict[str, list[str]] = {
@@ -224,8 +241,11 @@ def get_group_standings(group: str) -> dict:
     if not rows:
         return {"error": f"Unknown group '{group}'. Groups are A through L."}
     played = any(r["pld"] for r in rows)
-    return {"group": g, "played": played, "standings": rows,
-            "note": None if played else "Sample data: these group matches have not been played yet."}
+    # The note used to appear only for groups with no results, so the
+    # fabricated tables — the ones that actually look like facts — were
+    # precisely the ones that went unlabelled.
+    note = SAMPLE_NOTE if played else SAMPLE_NOTE + " These matches are unplayed in this snapshot."
+    return {"group": g, "played": played, "standings": rows, "note": note}
 
 
 def get_fixtures(team: str | None = None, group: str | None = None) -> dict:
@@ -236,7 +256,8 @@ def get_fixtures(team: str | None = None, group: str | None = None) -> dict:
     if team:
         t = _norm(team)
         matches = [m for m in matches if _norm(m["home"]) == t or _norm(m["away"]) == t]
-    return {"count": len(matches), "fixtures": [dict(m) for m in matches]}
+    return {"count": len(matches), "fixtures": [dict(m) for m in matches],
+            "note": SAMPLE_NOTE}
 
 
 def get_match_result(match_id: str) -> dict:
@@ -244,9 +265,11 @@ def get_match_result(match_id: str) -> dict:
         if _norm(m["id"]) == _norm(match_id):
             if m["status"] != "played":
                 return {"match_id": m["id"], "status": m["status"],
-                        "note": "This match has not been played yet."}
+                        "note": SAMPLE_NOTE + " This match is unplayed in the snapshot, which "
+                                "says nothing about whether it has been played in reality."}
             return {"match_id": m["id"], "home": m["home"], "away": m["away"],
-                    "score": m["score"], "venue": m["venue"], "status": "played"}
+                    "score": m["score"], "venue": m["venue"], "status": "played",
+                    "note": SAMPLE_NOTE}
     return {"error": f"No fixture with id '{match_id}'."}
 
 
@@ -254,7 +277,7 @@ def get_team_squad(team: str) -> dict:
     for name, roster in SQUADS.items():
         if _norm(name) == _norm(team):
             return {"team": name, "squad": [dict(p) for p in roster],
-                    "group": _find_group_of(name)}
+                    "group": _find_group_of(name), "note": SAMPLE_NOTE}
     return {"error": f"No sample squad for '{team}'.",
             "available": sorted(SQUADS.keys())}
 
@@ -262,7 +285,7 @@ def get_team_squad(team: str) -> dict:
 def get_player_stats(player: str) -> dict:
     for name, stats in PLAYERS.items():
         if _norm(name) == _norm(player):
-            return {"player": name, **stats}
+            return {"player": name, **stats, "note": SAMPLE_NOTE}
     return {"error": f"No sample stats for '{player}'.",
             "available": sorted(PLAYERS.keys())}
 
